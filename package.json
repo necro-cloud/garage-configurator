@@ -1,0 +1,24 @@
+{
+	"name": "garage_configurator",
+	"version": "1.0.0",
+	"description": "Automated configuration of Garage Storage on Kubernetes which includes node configuration, buckets and access keys configuration",
+	"scripts": {
+		"build": "pnpm tsc",
+		"run:dev": "pnpm tsc && node dist/index.js",
+		"execute": "node dist/index.js",
+		"format": "pnpm biome format --write"
+	},
+	"keywords": [],
+	"author": "khatrivarun",
+	"license": "MIT",
+	"packageManager": "pnpm@10.13.1",
+	"devDependencies": {
+		"@biomejs/biome": "2.1.2",
+		"@types/node": "^24.1.0",
+		"typescript": "^5.8.3"
+	},
+	"dependencies": {
+		"@faker-js/faker": "^9.9.0",
+		"@kubernetes/client-node": "^1.3.0"
+	}
+}
