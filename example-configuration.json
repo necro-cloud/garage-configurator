@@ -1,0 +1,35 @@
+{
+	"adminApiUrl": "https://localhost:3943",
+	"k8sClusterName": "garage",
+	"k8sClusterNamespace": "garage",
+	"desiredReplicas": 3,
+	"nodeTags": ["garage", "node"],
+	"buckets": [""],
+	"storagePerNodeInGBs": 5,
+	"accessKeysSecretAnnotations": [
+		{
+			"key": "",
+			"value": ""
+		}
+	],
+	"accessKeysSecretLabels": [
+		{
+			"key": "",
+			"value": ""
+		}
+	],
+	"accessKeys": [
+		{
+			"name": "",
+			"createBucket": false,
+			"permissions": [
+				{
+					"bucket": "",
+					"owner": false,
+					"reader": false,
+					"writer": false
+				}
+			]
+		}
+	]
+}
