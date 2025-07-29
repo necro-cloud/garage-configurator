@@ -4,30 +4,45 @@
 	"k8sClusterNamespace": "garage",
 	"desiredReplicas": 3,
 	"nodeTags": ["garage", "node"],
-	"buckets": [""],
+	"buckets": ["postgresql", "cloud"],
 	"storagePerNodeInGBs": 5,
-	"accessKeysSecretAnnotations": [
-		{
-			"key": "",
-			"value": ""
-		}
-	],
-	"accessKeysSecretLabels": [
-		{
-			"key": "",
-			"value": ""
-		}
-	],
+	"accessKeysSecretAnnotations": {
+		"reflector.v1.k8s.emberstack.com/reflection-allowed": "true",
+		"reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces": "postgres"
+	},
+	"accessKeysSecretLabels": {
+		"app": "garage",
+		"component": "secret",
+		"generated-by": "garage-configurator"
+	},
 	"accessKeys": [
 		{
-			"name": "",
+			"name": "walbackups",
 			"createBucket": false,
 			"permissions": [
 				{
-					"bucket": "",
-					"owner": false,
-					"reader": false,
-					"writer": false
+					"bucket": "postgresql",
+					"owner": true,
+					"reader": true,
+					"writer": true
+				}
+			]
+		},
+		{
+			"name": "master",
+			"createBucket": true,
+			"permissions": [
+				{
+					"bucket": "postgresql",
+					"owner": true,
+					"reader": true,
+					"writer": true
+				},
+				{
+					"bucket": "cloud",
+					"owner": true,
+					"reader": true,
+					"writer": true
 				}
 			]
 		}
