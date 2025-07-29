@@ -10,6 +10,7 @@ import {
 	applyClusterLayout,
 } from "./utilities/garage/cluster";
 import { getBucketInfo, createBucket } from "./utilities/garage/buckets";
+import { getKeyInfo, createKey } from "./utilities/garage/keys";
 import type { UpdateClusterLayoutDto } from "./utilities/garage/cluster";
 
 //----------------- GLOBAL VARIABLES PULLED OUT OF THE CONFIGURATION FILE ----------------- //
@@ -20,6 +21,9 @@ let GARAGE_KUBERNETES_DESIRED_REPLICAS = 1;
 let GARAGE_STORAGE_PER_NODE_IN_GBS = 1;
 let GARAGE_STORAGE_NODE_TAGS: Array<string> = [];
 let GARAGE_STORAGE_BUCKETS: Array<string> = [];
+let GARAGE_STORAGE_ACCESS_KEYS: Array<any> = [];
+let GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS = {};
+let GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS = {};
 let EXECUTION_MODE: string = process.env.EXECUTION_MODE ?? "testing";
 
 // Kubernetes Client Setup based on testing
@@ -62,6 +66,14 @@ async function readAndSetConfiguration() {
 		configuratorJson["nodeTags"] ?? GARAGE_STORAGE_NODE_TAGS;
 	GARAGE_STORAGE_BUCKETS =
 		configuratorJson["buckets"] ?? GARAGE_STORAGE_BUCKETS;
+	GARAGE_STORAGE_ACCESS_KEYS =
+		configuratorJson["accessKeys"] ?? GARAGE_STORAGE_ACCESS_KEYS;
+	GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS =
+		configuratorJson["accessKeysSecretLabels"] ??
+		GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS;
+	GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS =
+		configuratorJson["accessKeysSecretAnnotations"] ??
+		GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS;
 
 	// Logging
 	console.log("########## Configuring Garage with these settings ##########");
@@ -80,6 +92,13 @@ async function readAndSetConfiguration() {
 	console.log(
 		`Garage Storage Buckets to be Created: ${GARAGE_STORAGE_BUCKETS}`,
 	);
+	console.log(
+		`Garage Storage Access Keys to be Created: ${JSON.stringify(GARAGE_STORAGE_ACCESS_KEYS)}`,
+	);
+	console.log("Garage Storage Access Keys Secret Labels to be Used:");
+	console.log(GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS);
+	console.log("Garage Storage Access Keys Secret Annotations to be Used:");
+	console.log(GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS);
 	console.log(
 		"---------------------------------------------------------------------",
 	);
@@ -256,12 +275,68 @@ async function createBuckets() {
 	);
 }
 
+// Method to create access keys based on the configuration provided
+async function createAccessKeys() {
+	console.log(
+		"########## Creating required access keys on the Garage Cluster ##########",
+	);
+
+	// Loop against keys to be created
+	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
+		console.log(
+			`Checking if access key: ${accessKey["name"]} exists or not...`,
+		);
+
+		// Check if access key already exists or not
+		const getKeyInfoResponse = await getKeyInfo(
+			GARAGE_ADMIN_API_URL,
+			accessKey["name"],
+		);
+
+		if (getKeyInfoResponse["status"] === "not-found") {
+			console.log(
+				`Access Key: ${accessKey["name"]} does not exists, creating access key`,
+			);
+
+			// Create access key if it does not exist already
+			const createKeyResponse = await createKey(
+				GARAGE_ADMIN_API_URL,
+				accessKey["name"],
+				Boolean(accessKey["createBucket"]),
+			);
+			if (createKeyResponse["status"] === "success") {
+				console.log(`Access Key: ${accessKey["name"]} successfully created!`);
+
+				// Add access key info to a list, to be used later on
+				keysInfo[accessKey["name"]] = createKeyResponse["response"];
+			} else {
+				throw Error(
+					`Garage Storage Key Creation Failure: ${JSON.stringify(createKeyResponse["response"])}`,
+				);
+			}
+		} else if (getKeyInfoResponse["status"] === "success") {
+			// Add access key info to a list, to be used later on
+			keysInfo[accessKey["name"]] = getKeyInfoResponse["response"];
+			console.log(`Access Key: ${accessKey["name"]} already exists`);
+		} else {
+			throw Error(
+				`Garage Storage Key Info Failure: ${JSON.stringify(getKeyInfoResponse["response"])}`,
+			);
+		}
+	}
+
+	console.log(
+		"---------------------------------------------------------------------",
+	);
+}
+
 // Driver script
 async function main() {
 	await readAndSetConfiguration();
 	await checkGarageStatus();
 	await setupGarageClusterNodes();
 	await createBuckets();
+	await createAccessKeys();
 }
 
 main();
