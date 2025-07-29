@@ -1,8 +1,13 @@
 import k8s from "@kubernetes/client-node";
 import { faker } from "@faker-js/faker";
 import { readFile } from "fs/promises";
+import { Buffer } from "buffer";
 import sleep from "./utilities/miscelleneous/sleep";
 import { checkStatefulSetClusterStatus } from "./utilities/kubernetes/statefulset";
+import {
+	getKubernetesSecret,
+	createKubernetesSecret,
+} from "./utilities/kubernetes/secrets";
 import {
 	checkGarageClusterStatus,
 	getClusterStatus,
@@ -34,6 +39,8 @@ if (EXECUTION_MODE === "cluster") kc.loadFromCluster();
 else kc.loadFromDefault();
 
 const statefulSetApi = kc.makeApiClient(k8s.AppsV1Api);
+const secretsApi = kc.makeApiClient(k8s.CoreV1Api);
+
 // Global variables required for script execution
 let bucketsInfo: any = {};
 let keysInfo: any = {};
@@ -330,6 +337,71 @@ async function createAccessKeys() {
 	);
 }
 
+// Create Kubernetes Secrets for the Accesss Keys created
+async function createAccessKeySecrets() {
+	console.log(
+		"########## Creating required access keys secrets in the Kubernetes Cluster ##########",
+	);
+
+	// Loop against all keys
+	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
+		console.log(
+			`Checking if access key secret: ${accessKey["name"]}-credentials exists or not...`,
+		);
+
+		// Check if Kubernetes Secret for a specific key already exists or not
+		const getKeyInfoResponse = await getKubernetesSecret(
+			secretsApi,
+			`${accessKey["name"]}-credentials`,
+			GARAGE_KUBERNETES_NAMESPACE,
+		);
+
+		if (getKeyInfoResponse["status"] === "not-found") {
+			console.log(
+				`Access Key Secret: ${accessKey["name"]} does not exists, creating access key`,
+			);
+
+			// Create kubernetes secret for the access key
+			const createKeyResponse = await createKubernetesSecret(
+				secretsApi,
+				`${accessKey["name"]}-credentials`,
+				GARAGE_KUBERNETES_NAMESPACE,
+				GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS,
+				GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS,
+				{
+					KEY_NAME: Buffer.from(accessKey["name"]).toString("base64"),
+					ACCESS_KEY_ID: Buffer.from(
+						keysInfo[accessKey["name"]]["accessKeyId"],
+					).toString("base64"),
+					SECRET_ACCESS_KEY: Buffer.from(
+						keysInfo[accessKey["name"]]["secretAccessKey"],
+					).toString("base64"),
+				},
+			);
+
+			if (createKeyResponse["status"] === "success") {
+				console.log(
+					`Access Key Secret: ${accessKey["name"]}-credentials successfully created!`,
+				);
+			} else {
+				throw Error(
+					`Garage Storage Key Secret Creation Failure: ${JSON.stringify(createKeyResponse["response"])}`,
+				);
+			}
+		} else if (getKeyInfoResponse["status"] === "success") {
+			console.log(`Access Key Secret: ${accessKey["name"]} already exists`);
+		} else {
+			throw Error(
+				`Garage Storage Key Secret Info Failure: ${JSON.stringify(getKeyInfoResponse["response"])}`,
+			);
+		}
+	}
+
+	console.log(
+		"---------------------------------------------------------------------",
+	);
+}
+
 // Driver script
 async function main() {
 	await readAndSetConfiguration();
@@ -337,6 +409,7 @@ async function main() {
 	await setupGarageClusterNodes();
 	await createBuckets();
 	await createAccessKeys();
+	await createAccessKeySecrets();
 }
 
 main();
