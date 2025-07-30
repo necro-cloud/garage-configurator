@@ -23,6 +23,7 @@ import type { UpdateClusterLayoutDto } from "./utilities/garage/cluster";
 let GARAGE_ADMIN_API_URL = "http://localhost:3903";
 let GARAGE_KUBERNETES_CLUSTER_NAME = "garage";
 let GARAGE_KUBERNETES_NAMESPACE = "garage";
+let GARAGE_CLUSTER_REGION_NAME = "garage";
 let GARAGE_KUBERNETES_DESIRED_REPLICAS = 1;
 let GARAGE_STORAGE_PER_NODE_IN_GBS = 1;
 let GARAGE_STORAGE_NODE_TAGS: Array<string> = [];
@@ -64,6 +65,8 @@ async function readAndSetConfiguration() {
 		configuratorJson["k8sClusterName"] ?? GARAGE_KUBERNETES_CLUSTER_NAME;
 	GARAGE_KUBERNETES_NAMESPACE =
 		configuratorJson["k8sClusterNamespace"] ?? GARAGE_KUBERNETES_NAMESPACE;
+	GARAGE_CLUSTER_REGION_NAME =
+		configuratorJson["region"] ?? GARAGE_CLUSTER_REGION_NAME;
 	GARAGE_KUBERNETES_DESIRED_REPLICAS =
 		Number(configuratorJson["desiredReplicas"]) ??
 		GARAGE_KUBERNETES_DESIRED_REPLICAS;
@@ -377,6 +380,7 @@ async function createAccessKeySecrets() {
 					SECRET_ACCESS_KEY: Buffer.from(
 						keysInfo[accessKey["name"]]["secretAccessKey"],
 					).toString("base64"),
+					S3_REGION: Buffer.from(GARAGE_CLUSTER_REGION_NAME).toString("base64"),
 				},
 			);
 
