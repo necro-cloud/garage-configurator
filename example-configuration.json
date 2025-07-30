@@ -2,6 +2,7 @@
 	"adminApiUrl": "https://localhost:3943",
 	"k8sClusterName": "garage",
 	"k8sClusterNamespace": "garage",
+	"region": "garage",
 	"desiredReplicas": 3,
 	"nodeTags": ["garage", "node"],
 	"buckets": ["postgresql", "cloud"],
