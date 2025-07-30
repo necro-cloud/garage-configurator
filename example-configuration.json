@@ -23,8 +23,8 @@
 				{
 					"bucket": "postgresql",
 					"owner": true,
-					"reader": true,
-					"writer": true
+					"read": true,
+					"write": true
 				}
 			]
 		},
@@ -35,14 +35,26 @@
 				{
 					"bucket": "postgresql",
 					"owner": true,
-					"reader": true,
-					"writer": true
+					"read": true,
+					"write": true
 				},
 				{
 					"bucket": "cloud",
 					"owner": true,
-					"reader": true,
-					"writer": true
+					"read": true,
+					"write": true
+				}
+			]
+		},
+		{
+			"name": "cloud",
+			"createBucket": true,
+			"permissions": [
+				{
+					"bucket": "cloud",
+					"owner": true,
+					"read": true,
+					"write": true
 				}
 			]
 		}
