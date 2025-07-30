@@ -16,6 +16,7 @@ import {
 } from "./utilities/garage/cluster";
 import { getBucketInfo, createBucket } from "./utilities/garage/buckets";
 import { getKeyInfo, createKey } from "./utilities/garage/keys";
+import { assignPermissionsToAccessKeys } from "./utilities/garage/permissions";
 import type { UpdateClusterLayoutDto } from "./utilities/garage/cluster";
 
 //----------------- GLOBAL VARIABLES PULLED OUT OF THE CONFIGURATION FILE ----------------- //
@@ -402,6 +403,65 @@ async function createAccessKeySecrets() {
 	);
 }
 
+// Method to assign permissions to the access keys
+async function assignPermissions() {
+	console.log(
+		"########## Assigning required permissions to access keys on required buckets in Garage Cluster ##########",
+	);
+
+	// Looping against all keys configured
+	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
+		// Fetching required access key data to assign permissions
+		const accessKeyName = accessKey["name"];
+		const requiredPermissions = accessKey["permissions"];
+		const accessKeyId = keysInfo[accessKeyName]["accessKeyId"];
+
+		// Looping against all required permissions configured
+		for (const permission of requiredPermissions) {
+			// Fetch and check if the bucket exists or not
+			const bucketName = permission["bucket"];
+			const bucketInfo = bucketsInfo[bucketName];
+
+			if (bucketInfo === null) {
+				throw Error(`Bucket: ${bucketName} does not exist`);
+			}
+
+			const bucketId = bucketInfo["id"];
+
+			console.log(
+				`Assigning permissions to access key: ${accessKeyName} on bucket: ${bucketName}`,
+			);
+
+			// Assign permissions to the bucket
+			const assignPermissionsToAccessKeysResponse =
+				await assignPermissionsToAccessKeys(
+					GARAGE_ADMIN_API_URL,
+					accessKeyId,
+					bucketId,
+					{
+						owner: Boolean(permission["owner"]),
+						read: Boolean(permission["read"]),
+						write: Boolean(permission["write"]),
+					},
+				);
+
+			if (assignPermissionsToAccessKeysResponse["status"] === "success") {
+				console.log(
+					`Assigned permissions to access key: ${accessKeyName} on bucket: ${bucketName}`,
+				);
+			} else {
+				throw Error(
+					`Assign Permissions to Access Keys Error: ${JSON.stringify(assignPermissionsToAccessKeysResponse["response"])}`,
+				);
+			}
+		}
+	}
+
+	console.log(
+		"---------------------------------------------------------------------",
+	);
+}
+
 // Driver script
 async function main() {
 	await readAndSetConfiguration();
@@ -410,6 +470,7 @@ async function main() {
 	await createBuckets();
 	await createAccessKeys();
 	await createAccessKeySecrets();
+	await assignPermissions();
 }
 
 main();
