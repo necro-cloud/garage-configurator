@@ -35,7 +35,9 @@ export async function createKey(
 		body: JSON.stringify({
 			name,
 			neverExpires,
-			createBucket,
+			allow: {
+				createBucket,
+			},
 		}),
 	});
 

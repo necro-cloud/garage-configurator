@@ -16,12 +16,14 @@ import {
 } from "./utilities/garage/cluster";
 import { getBucketInfo, createBucket } from "./utilities/garage/buckets";
 import { getKeyInfo, createKey } from "./utilities/garage/keys";
+import { assignPermissionsToAccessKeys } from "./utilities/garage/permissions";
 import type { UpdateClusterLayoutDto } from "./utilities/garage/cluster";
 
 //----------------- GLOBAL VARIABLES PULLED OUT OF THE CONFIGURATION FILE ----------------- //
 let GARAGE_ADMIN_API_URL = "http://localhost:3903";
 let GARAGE_KUBERNETES_CLUSTER_NAME = "garage";
 let GARAGE_KUBERNETES_NAMESPACE = "garage";
+let GARAGE_CLUSTER_REGION_NAME = "garage";
 let GARAGE_KUBERNETES_DESIRED_REPLICAS = 1;
 let GARAGE_STORAGE_PER_NODE_IN_GBS = 1;
 let GARAGE_STORAGE_NODE_TAGS: Array<string> = [];
@@ -63,6 +65,8 @@ async function readAndSetConfiguration() {
 		configuratorJson["k8sClusterName"] ?? GARAGE_KUBERNETES_CLUSTER_NAME;
 	GARAGE_KUBERNETES_NAMESPACE =
 		configuratorJson["k8sClusterNamespace"] ?? GARAGE_KUBERNETES_NAMESPACE;
+	GARAGE_CLUSTER_REGION_NAME =
+		configuratorJson["region"] ?? GARAGE_CLUSTER_REGION_NAME;
 	GARAGE_KUBERNETES_DESIRED_REPLICAS =
 		Number(configuratorJson["desiredReplicas"]) ??
 		GARAGE_KUBERNETES_DESIRED_REPLICAS;
@@ -376,6 +380,7 @@ async function createAccessKeySecrets() {
 					SECRET_ACCESS_KEY: Buffer.from(
 						keysInfo[accessKey["name"]]["secretAccessKey"],
 					).toString("base64"),
+					S3_REGION: Buffer.from(GARAGE_CLUSTER_REGION_NAME).toString("base64"),
 				},
 			);
 
@@ -402,6 +407,65 @@ async function createAccessKeySecrets() {
 	);
 }
 
+// Method to assign permissions to the access keys
+async function assignPermissions() {
+	console.log(
+		"########## Assigning required permissions to access keys on required buckets in Garage Cluster ##########",
+	);
+
+	// Looping against all keys configured
+	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
+		// Fetching required access key data to assign permissions
+		const accessKeyName = accessKey["name"];
+		const requiredPermissions = accessKey["permissions"];
+		const accessKeyId = keysInfo[accessKeyName]["accessKeyId"];
+
+		// Looping against all required permissions configured
+		for (const permission of requiredPermissions) {
+			// Fetch and check if the bucket exists or not
+			const bucketName = permission["bucket"];
+			const bucketInfo = bucketsInfo[bucketName];
+
+			if (bucketInfo === null) {
+				throw Error(`Bucket: ${bucketName} does not exist`);
+			}
+
+			const bucketId = bucketInfo["id"];
+
+			console.log(
+				`Assigning permissions to access key: ${accessKeyName} on bucket: ${bucketName}`,
+			);
+
+			// Assign permissions to the bucket
+			const assignPermissionsToAccessKeysResponse =
+				await assignPermissionsToAccessKeys(
+					GARAGE_ADMIN_API_URL,
+					accessKeyId,
+					bucketId,
+					{
+						owner: Boolean(permission["owner"]),
+						read: Boolean(permission["read"]),
+						write: Boolean(permission["write"]),
+					},
+				);
+
+			if (assignPermissionsToAccessKeysResponse["status"] === "success") {
+				console.log(
+					`Assigned permissions to access key: ${accessKeyName} on bucket: ${bucketName}`,
+				);
+			} else {
+				throw Error(
+					`Assign Permissions to Access Keys Error: ${JSON.stringify(assignPermissionsToAccessKeysResponse["response"])}`,
+				);
+			}
+		}
+	}
+
+	console.log(
+		"---------------------------------------------------------------------",
+	);
+}
+
 // Driver script
 async function main() {
 	await readAndSetConfiguration();
@@ -410,6 +474,7 @@ async function main() {
 	await createBuckets();
 	await createAccessKeys();
 	await createAccessKeySecrets();
+	await assignPermissions();
 }
 
 main();
