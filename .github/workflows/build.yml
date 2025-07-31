@@ -1,0 +1,31 @@
+name: Build and store Garage Configurator Image
+
+on:
+  push:
+    branches:
+      - task/**
+      - feature/**
+      - bug/**
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - closed
+
+jobs:
+  build_push_image:
+    name: Building and storing Garage Configurator Docker Image
+    uses: necro-cloud/automations/.github/workflows/build-docker-image.yml@main
+    with:
+      dev_version_name: development
+      image_name: garage-configurator
+      image_proper_name: Garage Configurator
+      pre_build_script: |
+        sed -i "s|1.0.0|$SEMVER_VERSION|g" package.json
+      build_path: .
+      repository: garage-configurator
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
