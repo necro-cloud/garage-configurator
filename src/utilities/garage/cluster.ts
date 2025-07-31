@@ -9,13 +9,13 @@ export interface UpdateClusterLayoutDto {
 export async function checkGarageClusterStatus(garageAdminApiUrl: string) {
 	const clusterStatus = await getClusterHealth(garageAdminApiUrl);
 
-	if (clusterStatus["status"] === "error") {
+	if (clusterStatus.status === "error") {
 		throw Error(
-			`Garage Cluster is facing some issues. Error: ${clusterStatus["response"]}`,
+			`Garage Cluster is facing some issues. Error: ${clusterStatus.response}`,
 		);
 	}
 
-	return clusterStatus["response"]["status"] === "healthy";
+	return clusterStatus.response.status === "healthy";
 }
 
 // Method to fetch Garage Cluster Health

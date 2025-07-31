@@ -1,4 +1,4 @@
-import k8s from "@kubernetes/client-node";
+import type k8s from "@kubernetes/client-node";
 
 // Method to check StatefulSet if the number
 // of ready replicas is the same as the desired amount

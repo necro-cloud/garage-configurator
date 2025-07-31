@@ -1,23 +1,23 @@
-import k8s from "@kubernetes/client-node";
+import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
 import { faker } from "@faker-js/faker";
-import { readFile } from "fs/promises";
-import { Buffer } from "buffer";
-import sleep from "./utilities/miscelleneous/sleep";
-import { checkStatefulSetClusterStatus } from "./utilities/kubernetes/statefulset";
+import k8s from "@kubernetes/client-node";
+import { createBucket, getBucketInfo } from "./utilities/garage/buckets";
+import type { UpdateClusterLayoutDto } from "./utilities/garage/cluster";
 import {
-	getKubernetesSecret,
-	createKubernetesSecret,
-} from "./utilities/kubernetes/secrets";
-import {
+	applyClusterLayout,
 	checkGarageClusterStatus,
 	getClusterStatus,
 	updateClusterLayout,
-	applyClusterLayout,
 } from "./utilities/garage/cluster";
-import { getBucketInfo, createBucket } from "./utilities/garage/buckets";
-import { getKeyInfo, createKey } from "./utilities/garage/keys";
+import { createKey, getKeyInfo } from "./utilities/garage/keys";
 import { assignPermissionsToAccessKeys } from "./utilities/garage/permissions";
-import type { UpdateClusterLayoutDto } from "./utilities/garage/cluster";
+import {
+	createKubernetesSecret,
+	getKubernetesSecret,
+} from "./utilities/kubernetes/secrets";
+import { checkStatefulSetClusterStatus } from "./utilities/kubernetes/statefulset";
+import sleep from "./utilities/miscelleneous/sleep";
 
 //----------------- GLOBAL VARIABLES PULLED OUT OF THE CONFIGURATION FILE ----------------- //
 let GARAGE_ADMIN_API_URL = "http://localhost:3903";
@@ -28,10 +28,19 @@ let GARAGE_KUBERNETES_DESIRED_REPLICAS = 1;
 let GARAGE_STORAGE_PER_NODE_IN_GBS = 1;
 let GARAGE_STORAGE_NODE_TAGS: Array<string> = [];
 let GARAGE_STORAGE_BUCKETS: Array<string> = [];
-let GARAGE_STORAGE_ACCESS_KEYS: Array<any> = [];
+let GARAGE_STORAGE_ACCESS_KEYS: Array<{
+	name: string;
+	createBucket: boolean;
+	permissions: Array<{
+		bucket: string;
+		owner: boolean;
+		read: boolean;
+		write: boolean;
+	}>;
+}> = [];
 let GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS = {};
 let GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS = {};
-let EXECUTION_MODE: string = process.env.EXECUTION_MODE ?? "testing";
+const EXECUTION_MODE: string = process.env.EXECUTION_MODE ?? "testing";
 
 // Kubernetes Client Setup based on testing
 // or cluster environment the script is run on
@@ -44,8 +53,18 @@ const statefulSetApi = kc.makeApiClient(k8s.AppsV1Api);
 const secretsApi = kc.makeApiClient(k8s.CoreV1Api);
 
 // Global variables required for script execution
-let bucketsInfo: any = {};
-let keysInfo: any = {};
+const bucketsInfo: {
+	[key: string]: {
+		id: string;
+	};
+} = {};
+const keysInfo: {
+	[key: string]: {
+		accessKeyId: string;
+		secretAccessKey: string;
+		name: string;
+	};
+} = {};
 
 // Read the configuration file and pull required
 // configuration for the Garage Cluster to be configured
@@ -59,31 +78,29 @@ async function readAndSetConfiguration() {
 	const configuratorJson = JSON.parse(configuratorRawJson);
 
 	// TODO: Additional validation to be done
-	GARAGE_ADMIN_API_URL =
-		configuratorJson["adminApiUrl"] ?? GARAGE_ADMIN_API_URL;
+	GARAGE_ADMIN_API_URL = configuratorJson.adminApiUrl ?? GARAGE_ADMIN_API_URL;
 	GARAGE_KUBERNETES_CLUSTER_NAME =
-		configuratorJson["k8sClusterName"] ?? GARAGE_KUBERNETES_CLUSTER_NAME;
+		configuratorJson.k8sClusterName ?? GARAGE_KUBERNETES_CLUSTER_NAME;
 	GARAGE_KUBERNETES_NAMESPACE =
-		configuratorJson["k8sClusterNamespace"] ?? GARAGE_KUBERNETES_NAMESPACE;
+		configuratorJson.k8sClusterNamespace ?? GARAGE_KUBERNETES_NAMESPACE;
 	GARAGE_CLUSTER_REGION_NAME =
-		configuratorJson["region"] ?? GARAGE_CLUSTER_REGION_NAME;
+		configuratorJson.region ?? GARAGE_CLUSTER_REGION_NAME;
 	GARAGE_KUBERNETES_DESIRED_REPLICAS =
-		Number(configuratorJson["desiredReplicas"]) ??
+		Number(configuratorJson.desiredReplicas) ??
 		GARAGE_KUBERNETES_DESIRED_REPLICAS;
 	GARAGE_STORAGE_PER_NODE_IN_GBS =
-		Number(configuratorJson["storagePerNodeInGBs"]) ??
+		Number(configuratorJson.storagePerNodeInGBs) ??
 		GARAGE_STORAGE_PER_NODE_IN_GBS;
 	GARAGE_STORAGE_NODE_TAGS =
-		configuratorJson["nodeTags"] ?? GARAGE_STORAGE_NODE_TAGS;
-	GARAGE_STORAGE_BUCKETS =
-		configuratorJson["buckets"] ?? GARAGE_STORAGE_BUCKETS;
+		configuratorJson.nodeTags ?? GARAGE_STORAGE_NODE_TAGS;
+	GARAGE_STORAGE_BUCKETS = configuratorJson.buckets ?? GARAGE_STORAGE_BUCKETS;
 	GARAGE_STORAGE_ACCESS_KEYS =
-		configuratorJson["accessKeys"] ?? GARAGE_STORAGE_ACCESS_KEYS;
+		configuratorJson.accessKeys ?? GARAGE_STORAGE_ACCESS_KEYS;
 	GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS =
-		configuratorJson["accessKeysSecretLabels"] ??
+		configuratorJson.accessKeysSecretLabels ??
 		GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS;
 	GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS =
-		configuratorJson["accessKeysSecretAnnotations"] ??
+		configuratorJson.accessKeysSecretAnnotations ??
 		GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS;
 
 	// Logging
@@ -172,23 +189,23 @@ async function setupGarageClusterNodes() {
 	const clusterStatusResult = await getClusterStatus(GARAGE_ADMIN_API_URL);
 
 	// If the request errored out, stop the script
-	if (clusterStatusResult["status"] === "error") {
+	if (clusterStatusResult.status === "error") {
 		throw Error(
-			`Garage Cluster is facing some issues. Error: ${clusterStatusResult["response"]}`,
+			`Garage Cluster is facing some issues. Error: ${clusterStatusResult.response}`,
 		);
 	}
 
 	// Pull cluster status and current layout version from the response
-	const clusterStatus = clusterStatusResult["response"];
-	const currentLayoutVersion = Number(clusterStatus["layoutVersion"]);
+	const clusterStatus = clusterStatusResult.response;
+	const currentLayoutVersion = Number(clusterStatus.layoutVersion);
 
 	// New Layout Details for the cluster
 	const clusterLayoutDetails: Array<UpdateClusterLayoutDto> = [];
 
 	// Loop through nodes and assign them capacity
 	// zone and tags if present
-	clusterStatus["nodes"].forEach((node: any) => {
-		const nodeId: string = node["id"];
+	clusterStatus.nodes.forEach((node: { id: string }) => {
+		const nodeId: string = node.id;
 
 		if (nodeId === null)
 			throw Error(`Garage Cluster Node ID is null. Node details: ${node}`);
@@ -210,11 +227,11 @@ async function setupGarageClusterNodes() {
 		GARAGE_ADMIN_API_URL,
 		clusterLayoutDetails,
 	);
-	if (updateGarageClusterLayoutResponse["response"] != "success") {
+	if (updateGarageClusterLayoutResponse.response !== "success") {
 		console.log("Garage Storage Layout Update Success! Applying Layout...");
 	} else {
 		throw Error(
-			`Garage Storage Layout Update Failure: ${JSON.stringify(updateGarageClusterLayoutResponse["response"])}`,
+			`Garage Storage Layout Update Failure: ${JSON.stringify(updateGarageClusterLayoutResponse.response)}`,
 		);
 	}
 
@@ -223,11 +240,11 @@ async function setupGarageClusterNodes() {
 		GARAGE_ADMIN_API_URL,
 		currentLayoutVersion + 1,
 	);
-	if (applyGarageClusterLayoutResponse["response"] != "success") {
+	if (applyGarageClusterLayoutResponse.response !== "success") {
 		console.log("Garage Storage Layout Apply Success!");
 	} else {
 		throw Error(
-			`Garage Storage Layout Apply Failure: ${JSON.stringify(updateGarageClusterLayoutResponse["response"])}`,
+			`Garage Storage Layout Apply Failure: ${JSON.stringify(updateGarageClusterLayoutResponse.response)}`,
 		);
 	}
 
@@ -252,7 +269,7 @@ async function createBuckets() {
 			bucket,
 		);
 
-		if (getBucketInfoResponse["status"] === "not-found") {
+		if (getBucketInfoResponse.status === "not-found") {
 			console.log(`Bucket: ${bucket} does not exists, creating bucket`);
 
 			// Create the bucket if it does not exist
@@ -260,23 +277,23 @@ async function createBuckets() {
 				GARAGE_ADMIN_API_URL,
 				bucket,
 			);
-			if (createBucketResponse["status"] === "success") {
+			if (createBucketResponse.status === "success") {
 				console.log(`Bucket: ${bucket} successfully created!`);
 
 				// Add bucket info to a list, to be used later on
-				bucketsInfo[bucket] = createBucketResponse["response"];
+				bucketsInfo[bucket] = createBucketResponse.response;
 			} else {
 				throw Error(
-					`Garage Storage Bucket Creation Failure: ${JSON.stringify(createBucketResponse["response"])}`,
+					`Garage Storage Bucket Creation Failure: ${JSON.stringify(createBucketResponse.response)}`,
 				);
 			}
-		} else if (getBucketInfoResponse["status"] === "success") {
+		} else if (getBucketInfoResponse.status === "success") {
 			// Add bucket info to a list, to be used later on
-			bucketsInfo[bucket] = getBucketInfoResponse["response"];
+			bucketsInfo[bucket] = getBucketInfoResponse.response;
 			console.log(`Bucket: ${bucket} already exists`);
 		} else {
 			throw Error(
-				`Garage Storage Bucket Info Failure: ${JSON.stringify(getBucketInfoResponse["response"])}`,
+				`Garage Storage Bucket Info Failure: ${JSON.stringify(getBucketInfoResponse.response)}`,
 			);
 		}
 	}
@@ -294,44 +311,42 @@ async function createAccessKeys() {
 
 	// Loop against keys to be created
 	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
-		console.log(
-			`Checking if access key: ${accessKey["name"]} exists or not...`,
-		);
+		console.log(`Checking if access key: ${accessKey.name} exists or not...`);
 
 		// Check if access key already exists or not
 		const getKeyInfoResponse = await getKeyInfo(
 			GARAGE_ADMIN_API_URL,
-			accessKey["name"],
+			accessKey.name,
 		);
 
-		if (getKeyInfoResponse["status"] === "not-found") {
+		if (getKeyInfoResponse.status === "not-found") {
 			console.log(
-				`Access Key: ${accessKey["name"]} does not exists, creating access key`,
+				`Access Key: ${accessKey.name} does not exists, creating access key`,
 			);
 
 			// Create access key if it does not exist already
 			const createKeyResponse = await createKey(
 				GARAGE_ADMIN_API_URL,
-				accessKey["name"],
-				Boolean(accessKey["createBucket"]),
+				accessKey.name,
+				Boolean(accessKey.createBucket),
 			);
-			if (createKeyResponse["status"] === "success") {
-				console.log(`Access Key: ${accessKey["name"]} successfully created!`);
+			if (createKeyResponse.status === "success") {
+				console.log(`Access Key: ${accessKey.name} successfully created!`);
 
 				// Add access key info to a list, to be used later on
-				keysInfo[accessKey["name"]] = createKeyResponse["response"];
+				keysInfo[accessKey.name] = createKeyResponse.response;
 			} else {
 				throw Error(
-					`Garage Storage Key Creation Failure: ${JSON.stringify(createKeyResponse["response"])}`,
+					`Garage Storage Key Creation Failure: ${JSON.stringify(createKeyResponse.response)}`,
 				);
 			}
-		} else if (getKeyInfoResponse["status"] === "success") {
+		} else if (getKeyInfoResponse.status === "success") {
 			// Add access key info to a list, to be used later on
-			keysInfo[accessKey["name"]] = getKeyInfoResponse["response"];
-			console.log(`Access Key: ${accessKey["name"]} already exists`);
+			keysInfo[accessKey.name] = getKeyInfoResponse.response;
+			console.log(`Access Key: ${accessKey.name} already exists`);
 		} else {
 			throw Error(
-				`Garage Storage Key Info Failure: ${JSON.stringify(getKeyInfoResponse["response"])}`,
+				`Garage Storage Key Info Failure: ${JSON.stringify(getKeyInfoResponse.response)}`,
 			);
 		}
 	}
@@ -350,54 +365,54 @@ async function createAccessKeySecrets() {
 	// Loop against all keys
 	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
 		console.log(
-			`Checking if access key secret: ${accessKey["name"]}-credentials exists or not...`,
+			`Checking if access key secret: ${accessKey.name}-credentials exists or not...`,
 		);
 
 		// Check if Kubernetes Secret for a specific key already exists or not
 		const getKeyInfoResponse = await getKubernetesSecret(
 			secretsApi,
-			`${accessKey["name"]}-credentials`,
+			`${accessKey.name}-credentials`,
 			GARAGE_KUBERNETES_NAMESPACE,
 		);
 
-		if (getKeyInfoResponse["status"] === "not-found") {
+		if (getKeyInfoResponse.status === "not-found") {
 			console.log(
-				`Access Key Secret: ${accessKey["name"]} does not exists, creating access key`,
+				`Access Key Secret: ${accessKey.name} does not exists, creating access key`,
 			);
 
 			// Create kubernetes secret for the access key
 			const createKeyResponse = await createKubernetesSecret(
 				secretsApi,
-				`${accessKey["name"]}-credentials`,
+				`${accessKey.name}-credentials`,
 				GARAGE_KUBERNETES_NAMESPACE,
 				GARAGE_STORAGE_ACCESS_KEYS_SECRET_ANNOTATIONS,
 				GARAGE_STORAGE_ACCESS_KEYS_SECRET_LABELS,
 				{
-					KEY_NAME: Buffer.from(accessKey["name"]).toString("base64"),
+					KEY_NAME: Buffer.from(accessKey.name).toString("base64"),
 					ACCESS_KEY_ID: Buffer.from(
-						keysInfo[accessKey["name"]]["accessKeyId"],
+						keysInfo[accessKey.name].accessKeyId,
 					).toString("base64"),
 					SECRET_ACCESS_KEY: Buffer.from(
-						keysInfo[accessKey["name"]]["secretAccessKey"],
+						keysInfo[accessKey.name].secretAccessKey,
 					).toString("base64"),
 					S3_REGION: Buffer.from(GARAGE_CLUSTER_REGION_NAME).toString("base64"),
 				},
 			);
 
-			if (createKeyResponse["status"] === "success") {
+			if (createKeyResponse.status === "success") {
 				console.log(
-					`Access Key Secret: ${accessKey["name"]}-credentials successfully created!`,
+					`Access Key Secret: ${accessKey.name}-credentials successfully created!`,
 				);
 			} else {
 				throw Error(
-					`Garage Storage Key Secret Creation Failure: ${JSON.stringify(createKeyResponse["response"])}`,
+					`Garage Storage Key Secret Creation Failure: ${JSON.stringify(createKeyResponse.response)}`,
 				);
 			}
-		} else if (getKeyInfoResponse["status"] === "success") {
-			console.log(`Access Key Secret: ${accessKey["name"]} already exists`);
+		} else if (getKeyInfoResponse.status === "success") {
+			console.log(`Access Key Secret: ${accessKey.name} already exists`);
 		} else {
 			throw Error(
-				`Garage Storage Key Secret Info Failure: ${JSON.stringify(getKeyInfoResponse["response"])}`,
+				`Garage Storage Key Secret Info Failure: ${JSON.stringify(getKeyInfoResponse.response)}`,
 			);
 		}
 	}
@@ -416,21 +431,21 @@ async function assignPermissions() {
 	// Looping against all keys configured
 	for (const accessKey of GARAGE_STORAGE_ACCESS_KEYS) {
 		// Fetching required access key data to assign permissions
-		const accessKeyName = accessKey["name"];
-		const requiredPermissions = accessKey["permissions"];
-		const accessKeyId = keysInfo[accessKeyName]["accessKeyId"];
+		const accessKeyName = accessKey.name;
+		const requiredPermissions = accessKey.permissions;
+		const accessKeyId = keysInfo[accessKeyName].accessKeyId;
 
 		// Looping against all required permissions configured
 		for (const permission of requiredPermissions) {
 			// Fetch and check if the bucket exists or not
-			const bucketName = permission["bucket"];
+			const bucketName = permission.bucket;
 			const bucketInfo = bucketsInfo[bucketName];
 
 			if (bucketInfo === null) {
 				throw Error(`Bucket: ${bucketName} does not exist`);
 			}
 
-			const bucketId = bucketInfo["id"];
+			const bucketId = bucketInfo.id;
 
 			console.log(
 				`Assigning permissions to access key: ${accessKeyName} on bucket: ${bucketName}`,
@@ -443,19 +458,19 @@ async function assignPermissions() {
 					accessKeyId,
 					bucketId,
 					{
-						owner: Boolean(permission["owner"]),
-						read: Boolean(permission["read"]),
-						write: Boolean(permission["write"]),
+						owner: Boolean(permission.owner),
+						read: Boolean(permission.read),
+						write: Boolean(permission.write),
 					},
 				);
 
-			if (assignPermissionsToAccessKeysResponse["status"] === "success") {
+			if (assignPermissionsToAccessKeysResponse.status === "success") {
 				console.log(
 					`Assigned permissions to access key: ${accessKeyName} on bucket: ${bucketName}`,
 				);
 			} else {
 				throw Error(
-					`Assign Permissions to Access Keys Error: ${JSON.stringify(assignPermissionsToAccessKeysResponse["response"])}`,
+					`Assign Permissions to Access Keys Error: ${JSON.stringify(assignPermissionsToAccessKeysResponse.response)}`,
 				);
 			}
 		}
