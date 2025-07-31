@@ -12,10 +12,10 @@ export async function getKeyInfo(garageAdminApiUrl: string, keyName: string) {
 	return {
 		status: response.ok
 			? "success"
-			: response.status == 400
+			: response.status === 400
 				? "not-found"
 				: "error",
-		response: response.status == 404 ? {} : await response.json(),
+		response: response.status === 404 ? {} : await response.json(),
 	};
 }
 

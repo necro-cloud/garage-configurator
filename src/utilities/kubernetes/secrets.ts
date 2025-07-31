@@ -1,4 +1,4 @@
-import k8s from "@kubernetes/client-node";
+import type k8s from "@kubernetes/client-node";
 
 // Method to create access key secrets
 export async function getKubernetesSecret(
@@ -17,7 +17,7 @@ export async function getKubernetesSecret(
 			response: secretResponse,
 		};
 	} catch (error: any) {
-		if (JSON.parse(error.body)["code"] === 404)
+		if (JSON.parse(error.body).code === 404)
 			return {
 				status: "not-found",
 				response: {},

@@ -15,10 +15,10 @@ export async function getBucketInfo(
 	return {
 		status: response.ok
 			? "success"
-			: response.status == 404
+			: response.status === 404
 				? "not-found"
 				: "error",
-		response: response.status == 404 ? {} : await response.json(),
+		response: response.status === 404 ? {} : await response.json(),
 	};
 }
 
