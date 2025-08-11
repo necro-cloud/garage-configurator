@@ -11,7 +11,7 @@
 	"keywords": [],
 	"author": "khatrivarun",
 	"license": "MIT",
-	"packageManager": "pnpm@10.13.1",
+	"packageManager": "pnpm@10.14.0",
 	"devDependencies": {
 		"@biomejs/biome": "2.1.2",
 		"@types/node": "^24.1.0",
