@@ -15,7 +15,7 @@ export async function checkGarageClusterStatus(garageAdminApiUrl: string) {
 		);
 	}
 
-	return clusterStatus.response.status === "healthy";
+	return clusterStatus.response.status === "unavailable";
 }
 
 // Method to fetch Garage Cluster Health
