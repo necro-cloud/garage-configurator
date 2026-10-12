@@ -8,7 +8,8 @@ ARG GROUPNAME=configurator
 ARG USER_UID=1001
 ARG USER_GID=$USER_UID
 
-RUN wget -qO- https://get.pnpm.io | env ENV="$HOME/.shrc" SHELL="$(which sh)" sh -
+RUN wget -qO- https://get.pnpm.io | env ENV="$HOME/.shrc" SHELL="$(which sh)" sh - & \
+      source /root/.shrc
 COPY . /app
 WORKDIR /app
 
