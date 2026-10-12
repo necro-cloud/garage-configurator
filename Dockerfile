@@ -1,4 +1,4 @@
-FROM node:26.11.1-alpine3.23 AS base
+FROM ghcr.io/pnpm/pnpm:12.12.1 AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -8,18 +8,20 @@ ARG GROUPNAME=configurator
 ARG USER_UID=1001
 ARG USER_GID=$USER_UID
 
-RUN wget -qO- https://get.pnpm.io | env ENV="$HOME/.shrc" SHELL="$(which sh)" sh - & \
-      source /root/.shrc
+RUN pnpm runtime set node 24 -g
+
 COPY . /app
 WORKDIR /app
 
 FROM base AS prod-deps
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/var/cache/pnpm \
+    pnpm install --store-dir /var/cache/pnpm --prod --frozen-lockfile
 
 FROM base AS build
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/var/cache/pnpm \
+    pnpm install --store-dir /var/cache/pnpm --prod --frozen-lockfile
 RUN pnpm run build
 
 FROM base
