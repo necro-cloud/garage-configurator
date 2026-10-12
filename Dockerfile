@@ -8,7 +8,7 @@ ARG GROUPNAME=configurator
 ARG USER_UID=1001
 ARG USER_GID=$USER_UID
 
-RUN corepack enable
+RUN wget -qO- https://get.pnpm.io | env ENV="$HOME/.bashrc" SHELL="$(which bash)" bash -
 COPY . /app
 WORKDIR /app
 
